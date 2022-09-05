@@ -2,6 +2,7 @@ package hash
 
 import (
 	"crypto/rand"
+	"encoding/hex"
 	"math/big"
 	"testing"
 
@@ -33,4 +34,32 @@ func TestHash_WriteAny(t *testing.T) {
 	assert.NoError(t, testFunc(sample.Scalar(rand.Reader, curve.Secp256k1{})))
 	assert.NoError(t, testFunc(sample.Scalar(rand.Reader, curve.Secp256k1{}).ActOnBase()))
 	assert.NoError(t, testFunc([]byte{1, 4, 6}))
+}
+
+func TestHash_WriteAny_Collision(t *testing.T) {
+	var err error
+
+	testFunc := func(vs ...interface{}) ([]byte, error) {
+		h := New()
+		for _, v := range vs {
+			err = h.WriteAny(v)
+			if err != nil {
+				return nil, err
+			}
+		}
+		return h.Sum(), nil
+	}
+	b1 := []byte("1)(big.Int*data_added*")
+	b2 := []byte("3")
+	n2 := new(big.Int)
+	n2.SetString(hex.EncodeToString(b2), 16)
+	_, h1 := testFunc(b1, n2)
+
+	b1 = []byte("1")
+	b2 = []byte("*data_added*)(big.Int3")
+	n2 = new(big.Int)
+	n2.SetString(hex.EncodeToString(b2), 16)
+	_, h2 := testFunc(b1, n2)
+
+	assert.Equal(t, h1, h2)
 }
