@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/taurusgroup/multi-party-sig/pkg/math/curve"
 	"github.com/taurusgroup/multi-party-sig/pkg/math/sample"
 )
@@ -32,6 +33,26 @@ func TestSignature_Verify(t *testing.T) {
 	x := sample.Scalar(rand.Reader, group)
 	X := x.ActOnBase()
 	sig := NewSignature(x, m, nil)
+	if !sig.Verify(X, m) {
+		t.Error("verify failed")
+	}
+}
+
+func TestSignature_Verify_Zero(t *testing.T) {
+	group := curve.Secp256k1{}
+
+	m := []byte("any message is valid")
+	x := sample.Scalar(rand.Reader, group)
+	X := x.ActOnBase()
+
+	// s = 0
+	s := group.NewScalar()
+	assert.Equal(t, true, s.IsZero())
+	R := s.ActOnBase()
+	sig := &Signature{
+		R: R,
+		S: s,
+	}
 	if !sig.Verify(X, m) {
 		t.Error("verify failed")
 	}
