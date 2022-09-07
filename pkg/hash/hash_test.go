@@ -49,17 +49,19 @@ func TestHash_WriteAny_Collision(t *testing.T) {
 		}
 		return h.Sum(), nil
 	}
-	b1 := []byte("1)(big.Int*data_added*")
+	b1 := []byte("1)(big.Int\x02*data_added*")
 	b2 := []byte("3")
 	n2 := new(big.Int)
 	n2.SetString(hex.EncodeToString(b2), 16)
-	_, h1 := testFunc(b1, n2)
+	h1, err := testFunc(b1, n2)
+	assert.NoError(t, err)
 
 	b1 = []byte("1")
-	b2 = []byte("*data_added*)(big.Int3")
+	b2 = []byte("*data_added*)(big.Int\x023")
 	n2 = new(big.Int)
 	n2.SetString(hex.EncodeToString(b2), 16)
-	_, h2 := testFunc(b1, n2)
+	h2, err := testFunc(b1, n2)
+	assert.NoError(t, err)
 
 	assert.Equal(t, h1, h2)
 }
