@@ -1,7 +1,9 @@
 package hash
 
 import (
+	"bytes"
 	"encoding"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -19,12 +21,15 @@ const DigestLengthBytes = params.SecBytes * 2 // 64
 // Internally, this is a wrapper around sha3.ShakeHash, but any hash function with
 // an easily extendable output would work as well.
 type Hash struct {
-	h *blake3.Hasher
+	h   *blake3.Hasher
+	buf *bytes.Buffer
 }
 
 // New creates a Hash struct where the internal hash function is initialized with "CMP-BLAKE".
 func New(initialData ...WriterToWithDomain) *Hash {
-	hash := &Hash{h: blake3.New()}
+	buf := new(bytes.Buffer)
+	buf.Grow(64)
+	hash := &Hash{h: blake3.New(), buf: buf}
 	_, _ = hash.h.WriteString("CMP-BLAKE")
 	for _, d := range initialData {
 		_ = hash.WriteAny(d)
@@ -54,11 +59,11 @@ func (hash *Hash) Sum() []byte {
 //
 // Currently supported types:
 //
-//  - []byte
-//  - *safenum.Nat
-//  - *safenum.Int
-//  - *safenum.Modulus
-//  - hash.WriterToWithDomain
+//   - []byte
+//   - *safenum.Nat
+//   - *safenum.Int
+//   - *safenum.Modulus
+//   - hash.WriterToWithDomain
 //
 // This function will apply its own domain separation for the first two types.
 // The last type already suggests which domain to use, and this function respects it.
@@ -93,22 +98,35 @@ func (hash *Hash) WriteAny(data ...interface{}) error {
 			fmt.Println(t)
 		}
 
-		// Write out `(<domain><data>)`, so that each domain separated piece of data
-		// is distinguished from others.
-		_, _ = hash.h.WriteString("(")
+		// Write out `<length domain><domain><length data><data>` to avoid any ambiguity
+		lenBytes := make([]byte, 8)
+		domainLength := uint64(len(toBeWritten.Domain()))
+		binary.BigEndian.PutUint64(lenBytes, domainLength)
+		_, _ = hash.h.Write(lenBytes)
 		_, _ = hash.h.WriteString(toBeWritten.Domain())
-		_, err := toBeWritten.WriteTo(hash.h)
-		_, _ = hash.h.WriteString(")")
+
+		// Now, put the arbitrary data into a buffer, so we can figure out how large it is
+		hash.buf.Reset()
+		_, err := toBeWritten.WriteTo(hash.buf)
 		if err != nil {
 			return fmt.Errorf("hash.WriteAny: %s: %w", toBeWritten.Domain(), err)
 		}
+
+		dataLength := hash.buf.Len()
+		binary.BigEndian.PutUint64(lenBytes, uint64(dataLength))
+		_, _ = hash.h.Write(lenBytes)
+		_, _ = hash.h.Write(hash.buf.Bytes())
 	}
 	return nil
 }
 
 // Clone returns a copy of the Hash in its current state.
 func (hash *Hash) Clone() *Hash {
-	return &Hash{h: hash.h.Clone()}
+	// While in theory the same buffer could be shared, more intuitive to recreate a buffer,
+	// for example if people try and use two hash objects concurrently
+	buf := new(bytes.Buffer)
+	buf.Grow(64)
+	return &Hash{h: hash.h.Clone(), buf: buf}
 }
 
 // Fork clones this hash, and then writes some data.
